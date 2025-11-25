@@ -1,49 +1,365 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CSV Sanitize & Export</title>
     <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
       body {
-        font-family: system-ui, Arial;
-        padding: 18px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 50%, #16213e 100%);
+        color: #e0e0e0;
+        min-height: 100vh;
+        padding: 24px;
+        line-height: 1.6;
       }
-      table {
-        border-collapse: collapse;
-        margin-top: 12px;
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        animation: fadeIn 0.6s ease-out;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      h2 {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 12px;
+        letter-spacing: -0.5px;
+      }
+
+      .subtitle {
+        color: #a0a0b0;
+        font-size: 1.1rem;
+        margin-bottom: 32px;
+      }
+
+      .upload-section {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 32px;
+        margin-bottom: 24px;
+        transition: all 0.3s ease;
+      }
+
+      .upload-section:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(102, 126, 234, 0.5);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.2);
+      }
+
+      .file-input-wrapper {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
         width: 100%;
-        max-width: 1200px;
       }
-      th,
-      td {
-        border: 1px solid #ddd;
-        padding: 6px;
-        text-align: left;
-        font-size: 13px;
+
+      input[type="file"] {
+        position: absolute;
+        opacity: 0;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
       }
+
+      .file-input-label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 20px 32px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 12px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+      }
+
+      .file-input-label:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(102, 126, 234, 0.6);
+      }
+
+      .file-input-label::before {
+        content: "📁";
+        font-size: 1.5rem;
+      }
+
+      #info {
+        margin-top: 16px;
+        padding: 16px;
+        background: rgba(102, 126, 234, 0.1);
+        border-left: 4px solid #667eea;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        color: #b8c7ff;
+        min-height: 50px;
+        display: flex;
+        align-items: center;
+        animation: slideIn 0.4s ease-out;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateX(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
       #controls {
-        margin-top: 12px;
+        display: none;
+        gap: 12px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
       }
+
+      #controls.visible {
+        display: flex;
+        animation: slideIn 0.5s ease-out;
+      }
+
       button {
-        margin-right: 8px;
+        padding: 14px 28px;
+        border: none;
+        border-radius: 10px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
       }
-      pre {
-        background: #f8f8f8;
-        padding: 8px;
-        border-radius: 6px;
-        overflow: auto;
+
+      button::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.3);
+        transform: translate(-50%, -50%);
+        transition: width 0.6s, height 0.6s;
+      }
+
+      button:hover::before {
+        width: 300px;
+        height: 300px;
+      }
+
+      #downloadCsv {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        color: white;
+        box-shadow: 0 4px 16px rgba(17, 153, 142, 0.4);
+      }
+
+      #downloadCsv:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 24px rgba(17, 153, 142, 0.6);
+      }
+
+      #downloadJson {
+        background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);
+        color: white;
+        box-shadow: 0 4px 16px rgba(252, 74, 26, 0.4);
+      }
+
+      #downloadJson:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 24px rgba(252, 74, 26, 0.6);
+      }
+
+      button span {
+        position: relative;
+        z-index: 1;
+      }
+
+      #tableWrap {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 24px;
+        overflow-x: auto;
+        animation: fadeIn 0.6s ease-out 0.2s both;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.9rem;
+      }
+
+      th {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+        color: #b8c7ff;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 16px 12px;
+        text-align: left;
+        border-bottom: 2px solid rgba(102, 126, 234, 0.5);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      th:first-child {
+        border-top-left-radius: 12px;
+      }
+
+      th:last-child {
+        border-top-right-radius: 12px;
+      }
+
+      td {
+        padding: 14px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        color: #d0d0d8;
+        transition: all 0.2s ease;
+      }
+
+      tr {
+        transition: all 0.2s ease;
+      }
+
+      tr:hover td {
+        background: rgba(102, 126, 234, 0.1);
+        color: #ffffff;
+      }
+
+      tr:last-child td:first-child {
+        border-bottom-left-radius: 12px;
+      }
+
+      tr:last-child td:last-child {
+        border-bottom-right-radius: 12px;
+      }
+
+      .truncate-notice {
+        text-align: center;
+        font-style: italic;
+        color: #a0a0b0;
+        background: rgba(102, 126, 234, 0.05);
+        padding: 16px;
+      }
+
+      /* Scrollbar styling */
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+      }
+
+      /* Loading animation */
+      .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: #667eea;
+        animation: spin 1s ease-in-out infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      /* Responsive design */
+      @media (max-width: 768px) {
+        body {
+          padding: 16px;
+        }
+
+        h2 {
+          font-size: 2rem;
+        }
+
+        .upload-section {
+          padding: 20px;
+        }
+
+        button {
+          width: 100%;
+        }
+
+        table {
+          font-size: 0.8rem;
+        }
+
+        th, td {
+          padding: 10px 8px;
+        }
       }
     </style>
   </head>
   <body>
-    <h2>CSV Sanitize & Export</h2>
-    <input id="file" type="file" accept=".csv,text/csv" />
-    <div id="info"></div>
-    <div id="controls" style="display: none">
-      <button id="downloadCsv">Download sanitized CSV (UTF-8)</button>
-      <button id="downloadJson">Download JSON</button>
+    <div class="container">
+      <h2>CSV Sanitize & Export</h2>
+      <p class="subtitle">Clean, normalize, and export your CSV data with ease</p>
+      
+      <div class="upload-section">
+        <div class="file-input-wrapper">
+          <input id="file" type="file" accept=".csv,text/csv" />
+          <div class="file-input-label">
+            Choose CSV File
+          </div>
+        </div>
+        <div id="info"></div>
+      </div>
+
+      <div id="controls">
+        <button id="downloadCsv"><span>💾 Download CSV (UTF-8)</span></button>
+        <button id="downloadJson"><span>📄 Download JSON</span></button>
+      </div>
+
+      <div id="tableWrap"></div>
     </div>
-    <div id="tableWrap"></div>
 
     <script>
       const NORMALIZE_OPTIONS = {
@@ -123,25 +439,21 @@
             .replace(/[ ]{2,}/g, " ")
             .trim();
 
-        // Convert double newlines (paragraph gaps) first, then single newlines
-        // turn both paragraph gaps and single newlines into <br>
         out = out
-          .replace(/\n\s*\n/g, "<br><br>") // blank lines
-          .replace(/\n/g, "<br>"); // single newlines
+          .replace(/\n\s*\n/g, "<br><br>")
+          .replace(/\n/g, "<br>");
 
         return out;
       }
 
       function normalizeHtmlPreservingAttributes(htmlString, opts = {}) {
-        // ensure any escaped <br> become real <br> before parsing
         let s = String(htmlString)
           .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
-          .replace(/&amp;lt;br\s*\/?&amp;gt;/gi, "<br>"); // handle double-escaped variant
+          .replace(/&amp;lt;br\s*\/?&amp;gt;/gi, "<br>");
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(s, "text/html");
 
-        // walk only text nodes
         const walker = doc.createTreeWalker(
           doc.body,
           NodeFilter.SHOW_TEXT,
@@ -153,7 +465,6 @@
           const text = node.nodeValue;
           if (text == null) continue;
 
-          // split on any newline and replace with text + <br> nodes
           const parts = text.split(/\r\n|\r|\n/);
           if (parts.length === 1) {
             node.nodeValue = normalizeTextNodeString(parts[0], opts);
@@ -216,12 +527,11 @@
           .replace(/[÷]/g, "/")
           .replace(/[±]/g, "+/-");
 
-        // preserve <br> tags but escape all other < > pairs
         out = out
-          .replace(/<br\s*\/?>/gi, "___BR___") // temporarily hide <br>
+          .replace(/<br\s*\/?>/gi, "___BR___")
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;")
-          .replace(/___BR___/g, "<br>"); // restore <br>
+          .replace(/___BR___/g, "<br>");
 
         if (opts.replaceLineBreaksWith !== false)
           out = out.replace(/\r\n|\r|\n/g, opts.replaceLineBreaksWith);
@@ -245,7 +555,7 @@
       }
 
       function parseCSV(text, delim = ",") {
-        text = text.replace(/\r\n/g, "\n"); // normalize Windows newlines
+        text = text.replace(/\r\n/g, "\n");
         const rows = [];
         let cur = "";
         let row = [];
@@ -312,24 +622,21 @@
       document.getElementById("file").addEventListener("change", async (ev) => {
         const f = ev.target.files[0];
         if (!f) return;
-        document.getElementById(
-          "info"
-        ).textContent = `Loading ${f.name} (${f.size} bytes)...`;
+        
+        const infoDiv = document.getElementById("info");
+        infoDiv.innerHTML = '<span class="loading"></span> Loading ' + f.name + ' (' + f.size.toLocaleString() + ' bytes)...';
+        
         try {
           const buffer = await f.arrayBuffer();
           let text;
           try {
             const dec = new TextDecoder("utf-8", { fatal: true });
             text = dec.decode(buffer);
-            document.getElementById(
-              "info"
-            ).textContent = `Decoded as UTF-8 — ${f.name}`;
+            infoDiv.textContent = "✓ Decoded as UTF-8 — " + f.name;
           } catch (e) {
             const dec2 = new TextDecoder("windows-1252");
             text = dec2.decode(buffer);
-            document.getElementById(
-              "info"
-            ).textContent = `Decoded as windows-1252 (fallback) — ${f.name}`;
+            infoDiv.textContent = "✓ Decoded as windows-1252 (fallback) — " + f.name;
           }
           if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
           const firstLines = text
@@ -341,11 +648,10 @@
           const delimiter = semiCount > commaCount ? ";" : ",";
           const rows = parseCSV(text, delimiter);
           const normalized = rows.map((row, rIndex) => {
-            if (rIndex === 0) return row; // header row unchanged
+            if (rIndex === 0) return row;
             return row.map((cell, cIndex) => {
               const header = rows[0][cIndex]?.trim().toLowerCase() || "";
 
-              // photo column: append .jpg if missing (but keep value for normalization)
               if (
                 header === "photo" &&
                 cell &&
@@ -354,7 +660,6 @@
                 cell = String(cell).trim() + ".jpg";
               }
 
-              // preserve/normalize HTML cells, otherwise normalize plain text (this converts newlines -> <br> per options)
               if (looksLikeEscapedOrRawHtml(cell)) {
                 const unescaped = unescapeAngleBracketsOnly(cell);
                 return normalizeCell(unescaped, {
@@ -372,10 +677,9 @@
 
           renderTable(normalized);
           setupDownloads(normalized, f.name);
-          document.getElementById("controls").style.display = "block";
+          document.getElementById("controls").classList.add("visible");
         } catch (err) {
-          document.getElementById("info").textContent =
-            "Error reading file: " + err;
+          infoDiv.textContent = "❌ Error reading file: " + err;
           console.error(err);
         }
       });
@@ -388,13 +692,17 @@
           return;
         }
         const table = document.createElement("table");
+        const thead = document.createElement("thead");
         const header = document.createElement("tr");
         rows[0].forEach((h) => {
           const th = document.createElement("th");
           th.textContent = h;
           header.appendChild(th);
         });
-        table.appendChild(header);
+        thead.appendChild(header);
+        table.appendChild(thead);
+        
+        const tbody = document.createElement("tbody");
         for (let r = 1; r < rows.length; r++) {
           const tr = document.createElement("tr");
           rows[r].forEach((cell) => {
@@ -403,18 +711,20 @@
             else td.textContent = cell;
             tr.appendChild(td);
           });
-          table.appendChild(tr);
+          tbody.appendChild(tr);
           if (r >= 200) {
             const tr2 = document.createElement("tr");
             const td = document.createElement("td");
             td.colSpan = rows[0].length;
+            td.className = "truncate-notice";
             td.textContent =
               "...table truncated for display (first 200 rows shown)";
             tr2.appendChild(td);
-            table.appendChild(tr2);
+            tbody.appendChild(tr2);
             break;
           }
         }
+        table.appendChild(tbody);
         wrap.appendChild(table);
       }
 
