@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>CSV Sanitize & Export</title>
+    <style>
+      body {
+        font-family: system-ui, Arial;
+        padding: 18px;
+      }
+      table {
+        border-collapse: collapse;
+        margin-top: 12px;
+        width: 100%;
+        max-width: 1200px;
+      }
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 6px;
+        text-align: left;
+        font-size: 13px;
+      }
+      #controls {
+        margin-top: 12px;
+      }
+      button {
+        margin-right: 8px;
+      }
+      pre {
+        background: #f8f8f8;
+        padding: 8px;
+        border-radius: 6px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>CSV Sanitize & Export</h2>
+    <input id="file" type="file" accept=".csv,text/csv" />
+    <div id="info"></div>
+    <div id="controls" style="display: none">
+      <button id="downloadCsv">Download sanitized CSV (UTF-8)</button>
+      <button id="downloadJson">Download JSON</button>
+    </div>
+    <div id="tableWrap"></div>
+
+    <script>
+      const NORMALIZE_OPTIONS = {
+        transliterateAccents: false,
+        dashReplacement: "-",
+        ellipsisReplacement: "...",
+        arrowReplacement: "->",
+        checkmarkReplacement: "yes",
+        degreeReplacement: "deg",
+        replaceLineBreaksWith: "<br>",
+        trimAndCollapseWhitespace: false,
+      };
+
+      function looksLikeEscapedOrRawHtml(s) {
+        if (!s || typeof s !== "string") return false;
+        if (/\&lt;\s*\w+/i.test(s)) return true;
+        if (/<\s*\w+/i.test(s)) return true;
+        return false;
+      }
+
+      function unescapeAngleBracketsOnly(str) {
+        return String(str).replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+      }
+
+      function normalizeTextNodeString(s, opts = {}) {
+        if (s == null) return s;
+        opts = Object.assign({}, NORMALIZE_OPTIONS, opts);
+        let out = String(s);
+        out = out
+          .replace(/\u00A0/g, " ")
+          .replace(/\u200B/g, "")
+          .replace(/\uFEFF/g, "");
+        out = out
+          .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
+          .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"');
+        const dash = opts.dashReplacement || "-";
+        out = out.replace(
+          /[\u2012\u2013\u2014\u2015\u2212\u2010\u2011\u2043\uFE58\uFE63\uFF0D]/g,
+          dash
+        );
+        out = out.replace(
+          /[\u2026\u22EF\u22EE]/g,
+          opts.ellipsisReplacement || "..."
+        );
+        out = out.replace(/\u2022/g, "-").replace(/\u2043/g, "-");
+        out = out
+          .replace(/\u2122/g, " (TM)")
+          .replace(/\u00AE/g, " (R)")
+          .replace(/\u00A9/g, " (C)");
+        if (opts.degreeReplacement !== false)
+          out = out.replace(/\u00B0/g, " " + opts.degreeReplacement);
+        if (opts.checkmarkReplacement !== false)
+          out = out.replace(/[✓✔]/g, opts.checkmarkReplacement);
+        if (opts.arrowReplacement !== false) {
+          out = out
+            .replace(/[→↦⇢➡➜➔➙➛]/g, opts.arrowReplacement)
+            .replace(/[←↤⬅]/g, "<-");
+        }
+        out = out
+          .replace(/[×]/g, "x")
+          .replace(/[÷]/g, "/")
+          .replace(/[±]/g, "+/-");
+        if (opts.replaceLineBreaksWith !== false)
+          out = out.replace(/\r\n|\r|\n/g, opts.replaceLineBreaksWith);
+        if (opts.transliterateAccents) {
+          out = out
+            .replace(/ß/g, "ss")
+            .replace(/œ/g, "oe")
+            .replace(/Œ/g, "OE")
+            .replace(/ø/g, "o")
+            .replace(/Ø/g, "O");
+          out = out.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        }
+        if (opts.trimAndCollapseWhitespace)
+          out = out
+            .replace(/\t+/g, " ")
+            .replace(/[ ]{2,}/g, " ")
+            .trim();
+
+        // Convert double newlines (paragraph gaps) first, then single newlines
+        // turn both paragraph gaps and single newlines into <br>
+        out = out
+          .replace(/\n\s*\n/g, "<br><br>") // blank lines
+          .replace(/\n/g, "<br>"); // single newlines
+
+        return out;
+      }
+
+      function normalizeHtmlPreservingAttributes(htmlString, opts = {}) {
+        // ensure any escaped <br> become real <br> before parsing
+        let s = String(htmlString)
+          .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
+          .replace(/&amp;lt;br\s*\/?&amp;gt;/gi, "<br>"); // handle double-escaped variant
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(s, "text/html");
+
+        // walk only text nodes
+        const walker = doc.createTreeWalker(
+          doc.body,
+          NodeFilter.SHOW_TEXT,
+          null,
+          false
+        );
+        let node;
+        while ((node = walker.nextNode())) {
+          const text = node.nodeValue;
+          if (text == null) continue;
+
+          // split on any newline and replace with text + <br> nodes
+          const parts = text.split(/\r\n|\r|\n/);
+          if (parts.length === 1) {
+            node.nodeValue = normalizeTextNodeString(parts[0], opts);
+            continue;
+          }
+
+          const frag = doc.createDocumentFragment();
+          for (let i = 0; i < parts.length; i++) {
+            const seg = normalizeTextNodeString(parts[i], opts);
+            frag.appendChild(doc.createTextNode(seg));
+            if (i < parts.length - 1) frag.appendChild(doc.createElement("br"));
+          }
+          node.parentNode.replaceChild(frag, node);
+        }
+
+        return doc.body.innerHTML;
+      }
+
+      function normalizeCell(s, opts = {}) {
+        if (s == null) return s;
+        opts = Object.assign({}, NORMALIZE_OPTIONS, opts);
+
+        if (opts.preserveHtml) {
+          return normalizeHtmlPreservingAttributes(String(s), opts);
+        }
+
+        let out = String(s);
+        out = out
+          .replace(/\u00A0/g, " ")
+          .replace(/\u200B/g, "")
+          .replace(/\uFEFF/g, "");
+        out = out
+          .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
+          .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"');
+        const dash = opts.dashReplacement || "-";
+        out = out.replace(
+          /[\u2012\u2013\u2014\u2015\u2212\u2010\u2011\u2043\uFE58\uFE63\uFF0D]/g,
+          dash
+        );
+        out = out.replace(
+          /[\u2026\u22EF\u22EE]/g,
+          opts.ellipsisReplacement || "..."
+        );
+        out = out.replace(/\u2022/g, "-").replace(/\u2043/g, "-");
+        out = out
+          .replace(/\u2122/g, " (TM)")
+          .replace(/\u00AE/g, " (R)")
+          .replace(/\u00A9/g, " (C)");
+        if (opts.degreeReplacement !== false)
+          out = out.replace(/\u00B0/g, " " + opts.degreeReplacement);
+        if (opts.checkmarkReplacement !== false)
+          out = out.replace(/[✓✔]/g, opts.checkmarkReplacement);
+        if (opts.arrowReplacement !== false) {
+          out = out
+            .replace(/[→↦⇢➡➜➔➙➛]/g, opts.arrowReplacement)
+            .replace(/[←↤⬅]/g, "<-");
+        }
+        out = out
+          .replace(/[×]/g, "x")
+          .replace(/[÷]/g, "/")
+          .replace(/[±]/g, "+/-");
+
+        // preserve <br> tags but escape all other < > pairs
+        out = out
+          .replace(/<br\s*\/?>/gi, "___BR___") // temporarily hide <br>
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/___BR___/g, "<br>"); // restore <br>
+
+        if (opts.replaceLineBreaksWith !== false)
+          out = out.replace(/\r\n|\r|\n/g, opts.replaceLineBreaksWith);
+
+        if (opts.transliterateAccents) {
+          out = out
+            .replace(/ß/g, "ss")
+            .replace(/œ/g, "oe")
+            .replace(/Œ/g, "OE")
+            .replace(/ø/g, "o")
+            .replace(/Ø/g, "O");
+          out = out.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        }
+        if (opts.trimAndCollapseWhitespace)
+          out = out
+            .replace(/\t+/g, " ")
+            .replace(/[ ]{2,}/g, " ")
+            .trim();
+
+        return out;
+      }
+
+      function parseCSV(text, delim = ",") {
+        text = text.replace(/\r\n/g, "\n"); // normalize Windows newlines
+        const rows = [];
+        let cur = "";
+        let row = [];
+        let inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          const nxt = text[i + 1];
+          if (inQuotes) {
+            if (ch === '"') {
+              if (nxt === '"') {
+                cur += '"';
+                i++;
+              } else inQuotes = false;
+            } else cur += ch;
+            continue;
+          }
+          if (ch === '"') {
+            inQuotes = true;
+            continue;
+          }
+          if (ch === delim) {
+            row.push(cur);
+            cur = "";
+            continue;
+          }
+          if (ch === "\r") continue;
+          if (ch === "\n") {
+            row.push(cur);
+            rows.push(row);
+            row = [];
+            cur = "";
+            continue;
+          }
+          cur += ch;
+        }
+        if (cur !== "" || inQuotes || row.length > 0) {
+          row.push(cur);
+          rows.push(row);
+        }
+        return rows;
+      }
+
+      function rowsToCsv(rows) {
+        return rows
+          .map((row) =>
+            row
+              .map((cell) => {
+                if (cell == null) cell = "";
+                const s = String(cell);
+                const escaped = s.replace(/"/g, '""');
+                if (
+                  escaped.includes(",") ||
+                  escaped.includes("\n") ||
+                  escaped.includes('"')
+                )
+                  return `"${escaped}"`;
+                return escaped;
+              })
+              .join(",")
+          )
+          .join("\r\n");
+      }
+
+      document.getElementById("file").addEventListener("change", async (ev) => {
+        const f = ev.target.files[0];
+        if (!f) return;
+        document.getElementById(
+          "info"
+        ).textContent = `Loading ${f.name} (${f.size} bytes)...`;
+        try {
+          const buffer = await f.arrayBuffer();
+          let text;
+          try {
+            const dec = new TextDecoder("utf-8", { fatal: true });
+            text = dec.decode(buffer);
+            document.getElementById(
+              "info"
+            ).textContent = `Decoded as UTF-8 — ${f.name}`;
+          } catch (e) {
+            const dec2 = new TextDecoder("windows-1252");
+            text = dec2.decode(buffer);
+            document.getElementById(
+              "info"
+            ).textContent = `Decoded as windows-1252 (fallback) — ${f.name}`;
+          }
+          if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+          const firstLines = text
+            .split(/\r\n|\n/)
+            .slice(0, 5)
+            .join("\n");
+          const commaCount = (firstLines.match(/,/g) || []).length;
+          const semiCount = (firstLines.match(/;/g) || []).length;
+          const delimiter = semiCount > commaCount ? ";" : ",";
+          const rows = parseCSV(text, delimiter);
+          const normalized = rows.map((row, rIndex) => {
+            if (rIndex === 0) return row; // header row unchanged
+            return row.map((cell, cIndex) => {
+              const header = rows[0][cIndex]?.trim().toLowerCase() || "";
+
+              // photo column: append .jpg if missing (but keep value for normalization)
+              if (
+                header === "photo" &&
+                cell &&
+                !/\.jpg$/i.test(String(cell).trim())
+              ) {
+                cell = String(cell).trim() + ".jpg";
+              }
+
+              // preserve/normalize HTML cells, otherwise normalize plain text (this converts newlines -> <br> per options)
+              if (looksLikeEscapedOrRawHtml(cell)) {
+                const unescaped = unescapeAngleBracketsOnly(cell);
+                return normalizeCell(unescaped, {
+                  transliterateAccents: false,
+                  preserveHtml: true,
+                });
+              } else {
+                return normalizeCell(cell, {
+                  transliterateAccents: false,
+                  preserveHtml: false,
+                });
+              }
+            });
+          });
+
+          renderTable(normalized);
+          setupDownloads(normalized, f.name);
+          document.getElementById("controls").style.display = "block";
+        } catch (err) {
+          document.getElementById("info").textContent =
+            "Error reading file: " + err;
+          console.error(err);
+        }
+      });
+
+      function renderTable(rows) {
+        const wrap = document.getElementById("tableWrap");
+        wrap.innerHTML = "";
+        if (!rows.length) {
+          wrap.textContent = "No rows parsed.";
+          return;
+        }
+        const table = document.createElement("table");
+        const header = document.createElement("tr");
+        rows[0].forEach((h) => {
+          const th = document.createElement("th");
+          th.textContent = h;
+          header.appendChild(th);
+        });
+        table.appendChild(header);
+        for (let r = 1; r < rows.length; r++) {
+          const tr = document.createElement("tr");
+          rows[r].forEach((cell) => {
+            const td = document.createElement("td");
+            if (looksLikeEscapedOrRawHtml(cell)) td.innerHTML = cell;
+            else td.textContent = cell;
+            tr.appendChild(td);
+          });
+          table.appendChild(tr);
+          if (r >= 200) {
+            const tr2 = document.createElement("tr");
+            const td = document.createElement("td");
+            td.colSpan = rows[0].length;
+            td.textContent =
+              "...table truncated for display (first 200 rows shown)";
+            tr2.appendChild(td);
+            table.appendChild(tr2);
+            break;
+          }
+        }
+        wrap.appendChild(table);
+      }
+
+      function setupDownloads(rows, originalName) {
+        const csvBtn = document.getElementById("downloadCsv");
+        const jsonBtn = document.getElementById("downloadJson");
+        csvBtn.onclick = () => {
+          const csv = rowsToCsv(rows);
+          const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download =
+            (originalName || "sanitized").replace(/\.csv$/i, "") +
+            "-sanitized.csv";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        };
+        jsonBtn.onclick = () => {
+          const headers = rows[0] || [];
+          const data = rows.slice(1).map((r) => {
+            const obj = {};
+            for (let i = 0; i < headers.length; i++)
+              obj[headers[i] || `col${i + 1}`] = r[i] ?? "";
+            return obj;
+          });
+          const blob = new Blob([JSON.stringify(data, null, 2)], {
+            type: "application/json;charset=utf-8",
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download =
+            (originalName || "data").replace(/\.csv$/i, "") + "-sanitized.json";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        };
+      }
+    </script>
+  </body>
+</html>
