@@ -275,7 +275,6 @@
         padding: 16px;
       }
 
-      /* Scrollbar styling */
       ::-webkit-scrollbar {
         width: 10px;
         height: 10px;
@@ -295,7 +294,6 @@
         background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
       }
 
-      /* Loading animation */
       .loading {
         display: inline-block;
         width: 20px;
@@ -310,7 +308,6 @@
         to { transform: rotate(360deg); }
       }
 
-      /* Responsive design */
       @media (max-width: 768px) {
         body {
           padding: 16px;
@@ -652,12 +649,20 @@
             return row.map((cell, cIndex) => {
               const header = rows[0][cIndex]?.trim().toLowerCase() || "";
 
+              // Format Photo column
               if (
                 header === "photo" &&
                 cell &&
                 !/\.jpg$/i.test(String(cell).trim())
               ) {
                 cell = String(cell).trim() + ".jpg";
+              }
+
+              // Format DegreeAndYear column (Strip all apostrophes and prepend one)
+              if (header === "degreeandyear" && cell) {
+                let val = String(cell).trim();
+                val = val.replace(/['\u2018\u2019]/g, ""); // Remove all types of single quotes
+                cell = "'" + val; // Add one back to the start
               }
 
               if (looksLikeEscapedOrRawHtml(cell)) {
