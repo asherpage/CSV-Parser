@@ -457,6 +457,24 @@
         return s;
       }
 
+      // Add spaces around highlighted spans (span with style containing background)
+      function ensureSpacesAroundHighlightedSpans(htmlString) {
+        let s = String(htmlString);
+        
+        // Add space before opening span tags that follow non-whitespace (especially after periods)
+        // Match: non-space char followed by <span (with optional attributes)
+        s = s.replace(/([^\s])(<span[^>]*>)/gi, "$1 $2");
+        
+        // Add space after closing </span> or </strong></span> tags when followed by non-whitespace
+        s = s.replace(/(<\/span>)([^\s<])/gi, "$1 $2");
+        s = s.replace(/(<\/strong><\/span>)([^\s<])/gi, "$1 $2");
+        
+        // Clean up any double spaces that might have been created
+        s = s.replace(/  +/g, " ");
+        
+        return s;
+      }
+
       function normalizeHtmlPreservingAttributes(htmlString, opts = {}) {
         let s = String(htmlString);
         
@@ -493,7 +511,12 @@
           });
         }
 
-        return doc.body.innerHTML;
+        let result = doc.body.innerHTML;
+        
+        // Ensure spaces around highlighted spans
+        result = ensureSpacesAroundHighlightedSpans(result);
+
+        return result;
       }
 
       function normalizeCell(s, opts = {}) {
@@ -561,8 +584,8 @@
 
         // Also detect sentences run together (period followed immediately by capital letter)
         // But be more careful - only when there's a closing tag right before
-        out = out.replace(/(<\/strong><\/span>)([A-Z])/g, "$1<br><br>$2");
-        out = out.replace(/(<\/span>)([A-Z])/g, "$1<br><br>$2");
+        out = out.replace(/(<\/strong><\/span>)([A-Z])/g, "$1 $2");
+        out = out.replace(/(<\/span>)([A-Z])/g, "$1 $2");
 
         if (opts.transliterateAccents) {
           out = out
@@ -578,6 +601,9 @@
             .replace(/\t+/g, " ")
             .replace(/[ ]{2,}/g, " ")
             .trim();
+
+        // Ensure spaces around highlighted spans for non-HTML content too
+        out = ensureSpacesAroundHighlightedSpans(out);
 
         return out;
       }
