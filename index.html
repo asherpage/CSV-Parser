@@ -372,13 +372,19 @@
 
       function looksLikeEscapedOrRawHtml(s) {
         if (!s || typeof s !== "string") return false;
+        // Check for backslash-escaped HTML (e.g., \<div)
+        if (/\\<\s*\w+/i.test(s)) return true;
         if (/\&lt;\s*\w+/i.test(s)) return true;
         if (/<\s*\w+/i.test(s)) return true;
         return false;
       }
 
-      function unescapeAngleBracketsOnly(str) {
-        return String(str).replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+      function unescapeAngleBrackets(str) {
+        return String(str)
+          .replace(/\\</g, "<")
+          .replace(/\\>/g, ">")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">");
       }
 
       function normalizeTextNodeString(s, opts = {}) {
@@ -419,8 +425,6 @@
           .replace(/[×]/g, "x")
           .replace(/[÷]/g, "/")
           .replace(/[±]/g, "+/-");
-        if (opts.replaceLineBreaksWith !== false)
-          out = out.replace(/\r\n|\r|\n/g, opts.replaceLineBreaksWith);
         if (opts.transliterateAccents) {
           out = out
             .replace(/ß/g, "ss")
@@ -436,21 +440,42 @@
             .replace(/[ ]{2,}/g, " ")
             .trim();
 
-        out = out
-          .replace(/\n\s*\n/g, "<br><br>")
-          .replace(/\n/g, "<br>");
-
         return out;
       }
 
+      // Convert newlines to <br> tags BEFORE parsing as HTML
+      function convertNewlinesToBr(htmlString) {
+        // First normalize all line endings
+        let s = htmlString.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        
+        // Convert double newlines (paragraph breaks) to <br><br>
+        s = s.replace(/\n\s*\n/g, "<br><br>");
+        
+        // Convert remaining single newlines to <br>
+        s = s.replace(/\n/g, "<br>");
+        
+        return s;
+      }
+
       function normalizeHtmlPreservingAttributes(htmlString, opts = {}) {
-        let s = String(htmlString)
+        let s = String(htmlString);
+        
+        // Unescape any escaped angle brackets first
+        s = unescapeAngleBrackets(s);
+        
+        // Convert existing escaped <br> tags
+        s = s
           .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
           .replace(/&amp;lt;br\s*\/?&amp;gt;/gi, "<br>");
+
+        // CRITICAL: Convert newlines to <br> BEFORE DOMParser processes it
+        // DOMParser normalizes whitespace, so we must do this first
+        s = convertNewlinesToBr(s);
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(s, "text/html");
 
+        // Walk text nodes and normalize unicode characters only
         const walker = doc.createTreeWalker(
           doc.body,
           NodeFilter.SHOW_TEXT,
@@ -461,20 +486,11 @@
         while ((node = walker.nextNode())) {
           const text = node.nodeValue;
           if (text == null) continue;
-
-          const parts = text.split(/\r\n|\r|\n/);
-          if (parts.length === 1) {
-            node.nodeValue = normalizeTextNodeString(parts[0], opts);
-            continue;
-          }
-
-          const frag = doc.createDocumentFragment();
-          for (let i = 0; i < parts.length; i++) {
-            const seg = normalizeTextNodeString(parts[i], opts);
-            frag.appendChild(doc.createTextNode(seg));
-            if (i < parts.length - 1) frag.appendChild(doc.createElement("br"));
-          }
-          node.parentNode.replaceChild(frag, node);
+          // Only normalize unicode, don't touch newlines (already converted to <br>)
+          node.nodeValue = normalizeTextNodeString(text, { 
+            ...opts, 
+            replaceLineBreaksWith: false 
+          });
         }
 
         return doc.body.innerHTML;
@@ -489,6 +505,10 @@
         }
 
         let out = String(s);
+        
+        // First, normalize all line endings to \n
+        out = out.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        
         out = out
           .replace(/\u00A0/g, " ")
           .replace(/\u200B/g, "")
@@ -524,14 +544,25 @@
           .replace(/[÷]/g, "/")
           .replace(/[±]/g, "+/-");
 
+        // Preserve existing <br> tags
         out = out
           .replace(/<br\s*\/?>/gi, "___BR___")
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;")
           .replace(/___BR___/g, "<br>");
 
-        if (opts.replaceLineBreaksWith !== false)
-          out = out.replace(/\r\n|\r|\n/g, opts.replaceLineBreaksWith);
+        // Handle line breaks - double newlines become paragraph breaks, single become line breaks
+        if (opts.replaceLineBreaksWith !== false) {
+          // First handle paragraph breaks (2+ newlines with possible whitespace)
+          out = out.replace(/\n\s*\n/g, "<br><br>");
+          // Then handle remaining single newlines
+          out = out.replace(/\n/g, opts.replaceLineBreaksWith);
+        }
+
+        // Also detect sentences run together (period followed immediately by capital letter)
+        // But be more careful - only when there's a closing tag right before
+        out = out.replace(/(<\/strong><\/span>)([A-Z])/g, "$1<br><br>$2");
+        out = out.replace(/(<\/span>)([A-Z])/g, "$1<br><br>$2");
 
         if (opts.transliterateAccents) {
           out = out
@@ -666,7 +697,7 @@
               }
 
               if (looksLikeEscapedOrRawHtml(cell)) {
-                const unescaped = unescapeAngleBracketsOnly(cell);
+                const unescaped = unescapeAngleBrackets(cell);
                 return normalizeCell(unescaped, {
                   transliterateAccents: false,
                   preserveHtml: true,
@@ -712,8 +743,8 @@
           const tr = document.createElement("tr");
           rows[r].forEach((cell) => {
             const td = document.createElement("td");
-            if (looksLikeEscapedOrRawHtml(cell)) td.innerHTML = cell;
-            else td.textContent = cell;
+            // Always use innerHTML to render <br> tags
+            td.innerHTML = cell;
             tr.appendChild(td);
           });
           tbody.appendChild(tr);
